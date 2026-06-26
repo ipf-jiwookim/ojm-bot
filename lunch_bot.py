@@ -36,6 +36,7 @@ SLACK_CH = os.environ["SLACK_CHANNEL_ID"]
 KAKAO_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://pf.kakao.com/"}
 KST = timezone(timedelta(hours=9))
 NEG_WORDS = ("석식", "미운영", "휴무", "운영안", "운영 안")
+MIN_BOARD_SCORE = 8  # 이 점수 미만이면 메뉴판으로 신뢰하지 않음(음식 사진 오선택 방지)
 
 
 def http_get(url, headers=None, binary=False, retries=3):
@@ -127,9 +128,12 @@ def main():
     label = f"{md}({'월화수목금토일'[today.weekday()]})"
     print(f"[*] 오늘(KST): {today:%Y-%m-%d} | 매칭: '{md}' + '중식'")
 
+    # 제목은 항상 'M/D(요일) ...' 형식 → 여는 괄호까지 붙여 부분문자열 오매칭 방지
+    #   (예: 6/2 가 6/26 게시물에 잘못 매칭되는 문제)
+    date_key = f"{md}("
     items = json.loads(http_get(API, KAKAO_HEADERS)).get("items", [])
     hit = next((it for it in items
-                if md in (it.get("title") or "") and "중식" in (it.get("title") or "")), None)
+                if date_key in (it.get("title") or "") and "중식" in (it.get("title") or "")), None)
     if not hit:
         print("[*] 오늘 중식 게시물 없음 → 안내 메시지 전송")
         post_text(f"🍱 오늘({label}) 중식 메뉴가 아직 등록되지 않았어요. "
@@ -146,10 +150,13 @@ def main():
     board, raw, score = pick_menu_board(media)
     sel = (board.get("medium_url") or board.get("url") or "").replace("http://", "https://") if board else None
     print(f"[*] 선택된 메뉴판: score={score} {sel}")
-    if raw is None:  # OCR/다운로드 전부 실패 시 첫 이미지로 폴백
-        first = media[0]
-        url = (first.get("medium_url") or first.get("url")).replace("http://", "https://")
-        raw = http_get(url, KAKAO_HEADERS, binary=True)
+
+    # 신뢰도 미달(메뉴판을 못 찾음) → 음식 사진 오선택 대신 안내 메시지
+    if raw is None or score < MIN_BOARD_SCORE:
+        print(f"[*] 메뉴판 신뢰도 부족(score={score} < {MIN_BOARD_SCORE}) → 안내 메시지 전송")
+        post_text(f"🍱 오늘({label}) 중식 게시물은 있으나 메뉴판 이미지를 찾지 못했어요. "
+                  f"<{hit.get('permalink', '')}|게시물에서 직접 확인하기>")
+        return
 
     upload_image(raw, "중식 메뉴판", f"🍱 오늘의 중식 — {label}")
     print("[*] 전송 완료")
