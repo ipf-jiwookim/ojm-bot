@@ -92,7 +92,7 @@ def upload_image(raw, title, comment):
 def pick_menu_board(media):
     """OCR 점수로 메뉴판 카드 선택 (중식 가산, 석식/미운영 감점)."""
     best, best_score = None, -10**9
-    for m in media:
+    for idx, m in enumerate(media, 1):
         url = (m.get("medium_url") or m.get("url") or "").replace("http://", "https://")
         if not url:
             continue
@@ -102,11 +102,15 @@ def pick_menu_board(media):
         except Exception:  # noqa: BLE001
             text, raw = "", None
         flat = text.replace(" ", "")
-        score = sum(1 for ch in flat if "가" <= ch <= "힣")  # 한글 글자 수
-        if "중식" in flat:
+        hangul = sum(1 for ch in flat if "가" <= ch <= "힣")  # 한글 글자 수
+        score = hangul
+        has_js = "중식" in flat
+        neg = next((w for w in NEG_WORDS if w in flat), None)
+        if has_js:
             score += 60
-        if any(w in flat for w in NEG_WORDS):
+        if neg:
             score -= 200
+        print(f"  [p{idx}] score={score} (한글{hangul}, 중식={has_js}, neg={neg}) {url.rsplit('/dn/',1)[-1][:24]}")
         if score > best_score:
             best, best_score = (m, raw), score
     return (best[0], best[1], best_score) if best else (None, None, best_score)
@@ -134,8 +138,10 @@ def main():
         print("[*] 이미지 없음 → 전송 생략")
         return
 
+    print(f"[*] 게시물 '{hit.get('title','').strip()}' 이미지 {len(media)}장 분석:")
     board, raw, score = pick_menu_board(media)
-    print(f"[*] 메뉴판 선택 score={score}")
+    sel = (board.get("medium_url") or board.get("url") or "").replace("http://", "https://") if board else None
+    print(f"[*] 선택된 메뉴판: score={score} {sel}")
     if raw is None:  # OCR/다운로드 전부 실패 시 첫 이미지로 폴백
         first = media[0]
         url = (first.get("medium_url") or first.get("url")).replace("http://", "https://")
