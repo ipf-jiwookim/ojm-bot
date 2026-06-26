@@ -47,8 +47,12 @@ def post_slack(payload):
     req = urllib.request.Request(
         HOOK, data=data, headers={"Content-type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return r.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"slack {e.code}: {body}") from None
 
 
 def notify_error(msg):
@@ -110,6 +114,7 @@ def main():
         board = media[0]
 
     img = (board.get("medium_url") or board.get("url")).replace("http://", "https://")
+    print(f"[*] 선택 이미지: {img} ({board.get('width')}x{board.get('height')})")
     payload = {
         "text": f"🍱 오늘의 중식 — {label}",
         "blocks": [
