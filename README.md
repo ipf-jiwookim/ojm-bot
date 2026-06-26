@@ -12,7 +12,7 @@
 4. 이미지를 다운로드해 슬랙에 **파일 업로드** (image block 핫링크는 카카오 CDN을 슬랙이 못 가져와 불안정 → 업로드 방식으로 안정화)
 
 ## 실행
-- 자동: GitHub Actions cron `3 0 * * 1-5` (UTC) = 평일 09:03 KST
+- 자동: GitHub Actions cron `30 2 * * 1-5` (UTC) = 평일 11:30 KST
 - 수동: Actions 탭 → "밥플러스 점심 메뉴 슬랙 알림" → Run workflow
 
 ## 설정 (Secrets)

@@ -2,8 +2,8 @@ name: 밥플러스 점심 메뉴 슬랙 알림
 
 on:
   schedule:
-    # UTC 00:03 = KST 09:03, 월~금 (정각 부하 회피로 3분)
-    - cron: "3 0 * * 1-5"
+    # UTC 02:30 = KST 11:30, 월~금
+    - cron: "30 2 * * 1-5"
   workflow_dispatch: {}   # 웹/CLI에서 수동 실행
 
 concurrency:
