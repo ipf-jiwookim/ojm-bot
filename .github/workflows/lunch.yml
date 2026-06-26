@@ -1,0 +1,33 @@
+name: 밥플러스 점심 메뉴 슬랙 알림
+
+on:
+  schedule:
+    # UTC 00:03 = KST 09:03, 월~금 (정각 부하 회피로 3분)
+    - cron: "3 0 * * 1-5"
+  workflow_dispatch: {}   # 웹/CLI에서 수동 실행
+
+concurrency:
+  group: lunch-bot
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (tesseract + 한글 데이터)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-kor
+          pip install pillow pytesseract
+
+      - name: Run lunch bot
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python lunch_bot.py
