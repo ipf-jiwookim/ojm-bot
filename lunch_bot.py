@@ -27,6 +27,7 @@ from datetime import datetime, timezone, timedelta
 
 from PIL import Image
 import pytesseract
+import holidays
 
 KAKAO_CH = os.environ.get("CHANNEL_ID", "_HGxjan")
 API = f"https://pf.kakao.com/rocket-web/web/profiles/{KAKAO_CH}/posts"
@@ -113,6 +114,11 @@ def pick_menu_board(media):
 
 def main():
     today = datetime.now(KST)
+    # 공휴일이면 전송 생략 (대체공휴일·임시공휴일 포함)
+    kr_holidays = holidays.SouthKorea(years=[today.year])
+    if today.date() in kr_holidays:
+        print(f"[*] 오늘은 공휴일({kr_holidays.get(today.date())}) → 전송 생략")
+        return
     md = f"{today.month}/{today.day}"
     label = f"{md}({'월화수목금토일'[today.weekday()]})"
     print(f"[*] 오늘(KST): {today:%Y-%m-%d} | 매칭: '{md}' + '중식'")
