@@ -131,11 +131,15 @@ def main():
     hit = next((it for it in items
                 if md in (it.get("title") or "") and "중식" in (it.get("title") or "")), None)
     if not hit:
-        print("[*] 오늘 중식 게시물 없음 → 전송 생략")
+        print("[*] 오늘 중식 게시물 없음 → 안내 메시지 전송")
+        post_text(f"🍱 오늘({label}) 중식 메뉴가 아직 등록되지 않았어요. "
+                  f"<https://pf.kakao.com/{KAKAO_CH}/posts|채널에서 직접 확인하기>")
         return
     media = hit.get("media") or []
     if not media:
-        print("[*] 이미지 없음 → 전송 생략")
+        print("[*] 이미지 없음 → 안내 메시지 전송")
+        post_text(f"🍱 오늘({label}) 중식 게시물은 올라왔지만 이미지가 없어요. "
+                  f"<{hit.get('permalink', '')}|게시물 보기>")
         return
 
     print(f"[*] 게시물 '{hit.get('title','').strip()}' 이미지 {len(media)}장 분석:")
