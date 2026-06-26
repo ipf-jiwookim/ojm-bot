@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
 밥플러스 마곡디어반(17호점) 카카오 채널의 "오늘 중식 메뉴판" 이미지를
-슬랙 채널(밥플러스-오뭐먹)로 전송한다. (헤더 + 메뉴판 이미지 1장만)
+슬랙 채널로 전송한다. (헤더 코멘트 + 메뉴판 이미지 1장 업로드)
+
+이미지는 슬랙이 URL을 직접 가져오는 image block 방식이 불안정하므로,
+바이트를 다운로드해 files_upload 방식으로 채널에 직접 업로드한다.
 
 - 오늘 중식 게시물이 없으면 아무것도 보내지 않고 정상 종료.
-- 메뉴판(글자 카드)은 음식 사진과 달리 OCR로 텍스트가 많이 잡히므로,
-  게시물 이미지 중 한글 텍스트가 가장 많이 인식되는 것을 메뉴판으로 본다.
+- 메뉴판(글자 카드)은 음식 사진과 달리 OCR로 한글이 많이 잡힌다.
+  같은 게시물에 '석식 미운영' 등 다른 안내 카드가 섞일 수 있으므로
+  '중식'에 가산점, '석식/미운영/휴무' 안내에는 감점을 준다.
 
 환경변수:
-  SLACK_WEBHOOK_URL  (필수) 슬랙 Incoming Webhook URL
+  SLACK_BOT_TOKEN    (필수) xoxb- 봇 토큰 (files:write, chat:write)
+  SLACK_CHANNEL_ID   (필수) 전송할 채널 ID (예: C0BDDENKY3B)
   CHANNEL_ID         (선택) 카카오 채널 ID, 기본 _HGxjan
 """
 import io
@@ -16,24 +21,27 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
 from PIL import Image
 import pytesseract
 
-CHANNEL = os.environ.get("CHANNEL_ID", "_HGxjan")
-API = f"https://pf.kakao.com/rocket-web/web/profiles/{CHANNEL}/posts"
-HOOK = os.environ["SLACK_WEBHOOK_URL"]
-HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://pf.kakao.com/"}
+KAKAO_CH = os.environ.get("CHANNEL_ID", "_HGxjan")
+API = f"https://pf.kakao.com/rocket-web/web/profiles/{KAKAO_CH}/posts"
+TOKEN = os.environ["SLACK_BOT_TOKEN"]
+SLACK_CH = os.environ["SLACK_CHANNEL_ID"]
+KAKAO_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://pf.kakao.com/"}
 KST = timezone(timedelta(hours=9))
+NEG_WORDS = ("석식", "미운영", "휴무", "운영안", "운영 안")
 
 
-def http_get(url, binary=False, retries=3):
+def http_get(url, headers=None, binary=False, retries=3):
     last = None
     for attempt in range(1, retries + 1):
         try:
-            req = urllib.request.Request(url, headers=HEADERS)
+            req = urllib.request.Request(url, headers=headers or {})
             with urllib.request.urlopen(req, timeout=20) as r:
                 return r.read() if binary else r.read().decode("utf-8")
         except Exception as e:  # noqa: BLE001
@@ -42,90 +50,93 @@ def http_get(url, binary=False, retries=3):
     raise last
 
 
-def post_slack(payload):
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        HOOK, data=data, headers={"Content-type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return r.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "replace")
-        raise RuntimeError(f"slack {e.code}: {body}") from None
+def slack_api(method, data, get=False):
+    url = f"https://slack.com/api/{method}"
+    if get:
+        url += "?" + urllib.parse.urlencode(data)
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
+    else:
+        req = urllib.request.Request(
+            url,
+            data=urllib.parse.urlencode(data).encode(),
+            headers={
+                "Authorization": f"Bearer {TOKEN}",
+                "Content-type": "application/x-www-form-urlencoded",
+            },
+        )
+    res = json.loads(urllib.request.urlopen(req, timeout=20).read())
+    if not res.get("ok"):
+        raise RuntimeError(f"{method} 실패: {res.get('error')}")
+    return res
 
 
-def notify_error(msg):
-    try:
-        post_slack({"text": f"⚠️ 오늘 중식 메뉴 자동 전송 실패: {msg}"})
-    except Exception:  # noqa: BLE001
-        pass
+def post_text(text):
+    slack_api("chat.postMessage", {"channel": SLACK_CH, "text": text})
+
+
+def upload_image(raw, title, comment):
+    r = slack_api("files.getUploadURLExternal",
+                  {"filename": "jungsik.jpg", "length": len(raw)}, get=True)
+    upload_url, file_id = r["upload_url"], r["file_id"]
+    req = urllib.request.Request(upload_url, data=raw,
+                                 headers={"Content-Type": "application/octet-stream"})
+    urllib.request.urlopen(req, timeout=20).read()
+    slack_api("files.completeUploadExternal", {
+        "files": json.dumps([{"id": file_id, "title": title}]),
+        "channel_id": SLACK_CH,
+        "initial_comment": comment,
+    })
 
 
 def pick_menu_board(media):
-    """이미지 중 OCR 한글 텍스트가 가장 많은 것을 메뉴판으로 선택."""
-    best, best_score = None, -1
+    """OCR 점수로 메뉴판 카드 선택 (중식 가산, 석식/미운영 감점)."""
+    best, best_score = None, -10**9
     for m in media:
         url = (m.get("medium_url") or m.get("url") or "").replace("http://", "https://")
         if not url:
             continue
         try:
-            raw = http_get(url, binary=True)
+            raw = http_get(url, KAKAO_HEADERS, binary=True)
             text = pytesseract.image_to_string(Image.open(io.BytesIO(raw)), lang="kor")
         except Exception:  # noqa: BLE001
-            text = ""
-        # 한글 글자 수로 점수화 (음식 사진은 거의 0)
-        score = sum(1 for ch in text if "가" <= ch <= "힣")
-        # "중식" 배지가 보이면 가산점
-        if "중식" in text.replace(" ", ""):
-            score += 50
+            text, raw = "", None
+        flat = text.replace(" ", "")
+        score = sum(1 for ch in flat if "가" <= ch <= "힣")  # 한글 글자 수
+        if "중식" in flat:
+            score += 60
+        if any(w in flat for w in NEG_WORDS):
+            score -= 200
         if score > best_score:
-            best, best_score = m, score
-    return best, best_score
+            best, best_score = (m, raw), score
+    return (best[0], best[1], best_score) if best else (None, None, best_score)
 
 
 def main():
     today = datetime.now(KST)
-    md = f"{today.month}/{today.day}"  # 6/26
-    weekday = "월화수목금토일"[today.weekday()]
-    label = f"{md}({weekday})"
+    md = f"{today.month}/{today.day}"
+    label = f"{md}({'월화수목금토일'[today.weekday()]})"
     print(f"[*] 오늘(KST): {today:%Y-%m-%d} | 매칭: '{md}' + '중식'")
 
-    data = json.loads(http_get(API))
-    items = data.get("items", [])
-
-    hit = next(
-        (it for it in items if md in (it.get("title") or "") and "중식" in (it.get("title") or "")),
-        None,
-    )
+    items = json.loads(http_get(API, KAKAO_HEADERS)).get("items", [])
+    hit = next((it for it in items
+                if md in (it.get("title") or "") and "중식" in (it.get("title") or "")), None)
     if not hit:
         print("[*] 오늘 중식 게시물 없음 → 전송 생략")
         return
-
     media = hit.get("media") or []
     if not media:
         print("[*] 이미지 없음 → 전송 생략")
         return
 
-    board, score = pick_menu_board(media)
+    board, raw, score = pick_menu_board(media)
     print(f"[*] 메뉴판 선택 score={score}")
-    if not board or score < 5:
-        # OCR로 메뉴판을 못 찾으면 첫 이미지로 폴백
-        board = media[0]
+    if raw is None:  # OCR/다운로드 전부 실패 시 첫 이미지로 폴백
+        first = media[0]
+        url = (first.get("medium_url") or first.get("url")).replace("http://", "https://")
+        raw = http_get(url, KAKAO_HEADERS, binary=True)
 
-    img = (board.get("medium_url") or board.get("url")).replace("http://", "https://")
-    print(f"[*] 선택 이미지: {img} ({board.get('width')}x{board.get('height')})")
-    payload = {
-        "text": f"🍱 오늘의 중식 — {label}",
-        "blocks": [
-            {"type": "header", "text": {"type": "plain_text", "text": f"🍱 오늘의 중식 — {label}", "emoji": True}},
-            {"type": "image", "image_url": img, "alt_text": "중식 메뉴판"},
-        ],
-    }
-    res = post_slack(payload)
-    print(f"[*] 슬랙 응답: {res}")
-    if res.strip() != "ok":
-        raise RuntimeError(f"슬랙 전송 실패: {res}")
+    upload_image(raw, "중식 메뉴판", f"🍱 오늘의 중식 — {label}")
+    print("[*] 전송 완료")
 
 
 if __name__ == "__main__":
@@ -133,5 +144,8 @@ if __name__ == "__main__":
         main()
     except Exception as e:  # noqa: BLE001
         print(f"[!] 오류: {e}", file=sys.stderr)
-        notify_error(str(e))
+        try:
+            post_text(f"⚠️ 오늘 중식 메뉴 자동 전송 실패: {e}")
+        except Exception:  # noqa: BLE001
+            pass
         sys.exit(1)
