@@ -117,8 +117,26 @@ def pick_menu_board(media):
     return (best[0], best[1], best_score) if best else (None, None, best_score)
 
 
+def mark_sent(today):
+    """오늘 메뉴 전송 완료 마커 기록 (재시도 실행의 중복 전송 방지)."""
+    marker = os.environ.get("SENT_MARKER")
+    if marker:
+        with open(marker, "w") as f:
+            f.write(today.strftime("%Y-%m-%d"))
+
+
+def already_sent():
+    """이전 실행(예: 11:30)에서 오늘 메뉴를 이미 보냈는지."""
+    marker = os.environ.get("SENT_MARKER")
+    return bool(marker and os.path.exists(marker))
+
+
 def main():
     today = datetime.now(KST)
+    # 같은 날 재시도(12:00) 실행인데 11:30에 이미 메뉴를 보냈으면 중복 방지
+    if already_sent():
+        print("[*] 오늘 메뉴 이미 전송됨 → 재시도 생략")
+        return
     # 공휴일이면 전송 생략 (대체공휴일·임시공휴일 포함)
     kr_holidays = holidays.SouthKorea(years=[today.year])
     if today.date() in kr_holidays:
@@ -158,7 +176,17 @@ def main():
                   f"<{hit.get('permalink', '')}|게시물에서 직접 확인하기>")
         return
 
+    # 선별은 medium OCR, 전송은 고화질(xlarge)로 — 글씨가 또렷하게
+    big_url = (board.get("xlarge_url") or board.get("large_url")
+               or board.get("medium_url") or board.get("url")).replace("http://", "https://")
+    try:
+        raw = http_get(big_url, KAKAO_HEADERS, binary=True)
+        print(f"[*] 전송 화질 업그레이드: {board.get('width')}x{board.get('height')} ({len(raw)//1024}KB)")
+    except Exception as e:  # noqa: BLE001
+        print(f"[!] xlarge 다운로드 실패({e}) → medium 으로 전송")
+
     upload_image(raw, "중식 메뉴판", f"🍱 오늘의 중식 — {label}")
+    mark_sent(today)
     print("[*] 전송 완료")
 
 
