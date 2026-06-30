@@ -6,7 +6,12 @@ on:
     - cron: "32 2 * * 1-5"
     # UTC 03:07 = KST 12:07, 월~금 (재시도)
     - cron: "7 3 * * 1-5"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "슬랙 전송 없이 동작만 테스트"
+        type: boolean
+        default: false
 
 concurrency:
   group: lunch-bot
@@ -45,4 +50,5 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SENT_MARKER: .sent_marker
+          DRY_RUN: ${{ inputs.dry_run }}
         run: python lunch_bot.py

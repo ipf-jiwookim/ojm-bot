@@ -31,8 +31,12 @@ import holidays
 
 KAKAO_CH = os.environ.get("CHANNEL_ID", "_HGxjan")
 API = f"https://pf.kakao.com/rocket-web/web/profiles/{KAKAO_CH}/posts"
-TOKEN = os.environ["SLACK_BOT_TOKEN"]
-SLACK_CH = os.environ["SLACK_CHANNEL_ID"]
+# DRY_RUN: 슬랙으로 실제 전송하지 않고 동작만 확인 (수동 테스트용)
+DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
+TOKEN = os.environ.get("SLACK_BOT_TOKEN", "" if DRY_RUN else None)
+SLACK_CH = os.environ.get("SLACK_CHANNEL_ID", "" if DRY_RUN else None)
+if TOKEN is None or SLACK_CH is None:
+    raise SystemExit("SLACK_BOT_TOKEN / SLACK_CHANNEL_ID 환경변수가 필요합니다.")
 KAKAO_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://pf.kakao.com/"}
 KST = timezone(timedelta(hours=9))
 NEG_WORDS = ("석식", "미운영", "휴무", "운영안", "운영 안")
@@ -73,10 +77,16 @@ def slack_api(method, data, get=False):
 
 
 def post_text(text):
+    if DRY_RUN:
+        print(f"[DRY_RUN] 텍스트 전송 생략:\n  {text}")
+        return
     slack_api("chat.postMessage", {"channel": SLACK_CH, "text": text})
 
 
 def upload_image(raw, title, comment):
+    if DRY_RUN:
+        print(f"[DRY_RUN] 이미지 전송 생략: title={title!r}, {len(raw)//1024}KB, comment={comment!r}")
+        return
     r = slack_api("files.getUploadURLExternal",
                   {"filename": "jungsik.jpg", "length": len(raw)}, get=True)
     upload_url, file_id = r["upload_url"], r["file_id"]
@@ -119,6 +129,8 @@ def pick_menu_board(media):
 
 def mark_sent(today):
     """오늘 메뉴 전송 완료 마커 기록 (재시도 실행의 중복 전송 방지)."""
+    if DRY_RUN:
+        return  # 테스트 실행이 실제 예약 실행의 캐시 마커를 오염시키지 않도록
     marker = os.environ.get("SENT_MARKER")
     if marker:
         with open(marker, "w") as f:
@@ -133,8 +145,10 @@ def already_sent():
 
 def main():
     today = datetime.now(KST)
+    if DRY_RUN:
+        print("[DRY_RUN] 슬랙 전송 없이 동작만 확인합니다.")
     # 같은 날 재시도(12:00) 실행인데 11:30에 이미 메뉴를 보냈으면 중복 방지
-    if already_sent():
+    if not DRY_RUN and already_sent():
         print("[*] 오늘 메뉴 이미 전송됨 → 재시도 생략")
         return
     # 공휴일이면 전송 생략 (대체공휴일·임시공휴일 포함)
