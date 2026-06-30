@@ -1,11 +1,8 @@
 name: 밥플러스 점심 메뉴 슬랙 알림
 
 on:
-  schedule:
-    # UTC 02:32 = KST 11:32, 월~금 (1차)
-    - cron: "32 2 * * 1-5"
-    # UTC 03:07 = KST 12:07, 월~금 (재시도)
-    - cron: "7 3 * * 1-5"
+  # 예약 실행은 외부 스케줄러(val.town)가 평일 11:30 KST에 workflow_dispatch로 트리거.
+  # (GitHub schedule cron은 누락이 잦아 제거함)
   workflow_dispatch:
     inputs:
       dry_run:
