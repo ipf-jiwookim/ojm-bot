@@ -1,7 +1,7 @@
 name: 밥플러스 점심 메뉴 슬랙 알림
 
 on:
-  # 예약 실행은 외부 스케줄러(val.town)가 평일 11:30 KST에 workflow_dispatch로 트리거.
+  # 예약 실행은 외부 스케줄러(val.town)가 평일 11:00 KST에 workflow_dispatch로 트리거.
   # (GitHub schedule cron은 누락이 잦아 제거함)
   workflow_dispatch:
     inputs:
@@ -35,7 +35,7 @@ jobs:
         id: d
         run: echo "today=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
 
-      # 같은 날 11:30/12:00 두 실행 간 "이미 전송됨" 공유 (중복 전송 방지)
+      # 같은 날 여러 실행 간 "이미 전송됨" 공유 (중복 전송 방지)
       - name: 전송 마커 캐시 복원/저장
         uses: actions/cache@v4
         with:

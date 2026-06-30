@@ -249,7 +249,7 @@ def mark_sent(today):
 
 
 def already_sent():
-    """이전 실행(예: 11:30)에서 오늘 메뉴를 이미 보냈는지."""
+    """이전 실행(예: 11:00)에서 오늘 메뉴를 이미 보냈는지."""
     marker = os.environ.get("SENT_MARKER")
     return bool(marker and os.path.exists(marker))
 
@@ -258,7 +258,7 @@ def main():
     today = datetime.now(KST)
     if DRY_RUN:
         print("[DRY_RUN] 슬랙 전송 없이 동작만 확인합니다.")
-    # 같은 날 재시도(12:00) 실행인데 11:30에 이미 메뉴를 보냈으면 중복 방지
+    # 같은 날 재시도 실행인데 11:00에 이미 메뉴를 보냈으면 중복 방지
     if not DRY_RUN and already_sent():
         print("[*] 오늘 메뉴 이미 전송됨 → 재시도 생략")
         return
