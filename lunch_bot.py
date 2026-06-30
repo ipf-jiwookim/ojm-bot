@@ -120,6 +120,79 @@ def theme_color(img):
     return green * 100 / total, pink * 100 / total
 
 
+def _longest_run(counts, ok, max_gap=2):
+    """counts(dict, 정수 키)에서 ok(v)가 참인 키의 최장 연속 구간 (작은 gap 허용)."""
+    best = (0, -1)
+    cur = last = None
+    gap = 0
+    for k in sorted(counts):
+        if ok(counts[k]):
+            if cur is None:
+                cur = k
+            last = k
+            gap = 0
+        elif cur is not None:
+            gap += 1
+            if gap > max_gap:
+                if last - cur > best[1] - best[0]:
+                    best = (cur, last)
+                cur = None
+    if cur is not None and last - cur > best[1] - best[0]:
+        best = (cur, last)
+    return best
+
+
+def read_badge(img):
+    """우상단 색 뱃지(빨강=중식/분홍=석식)의 글자를 OCR로 직접 판독.
+    뱃지는 '꽉 찬 색면'이라, 같은 색의 얇은 테두리선과 구분하기 위해
+    분홍/빨강이 빽빽한 행이 '연속으로 이어진' 최장 구간만 뱃지로 본다.
+    실패 시 None (상위 색/한글 신호로 폴백)."""
+    try:
+        im = img.convert("RGB")
+        w, h = im.size
+        px = im.load()
+        x0, x1 = int(w * 0.55), int(w * 0.97)
+        y0, y1 = int(h * 0.04), int(h * 0.26)
+
+        def is_red(p):  # 빨강·분홍 공통(붉은기 강함)
+            r, g, b = p
+            return r > 150 and r > g + 35
+
+        rowcnt = {y: sum(1 for x in range(x0, x1) if is_red(px[x, y]))
+                  for y in range(y0, y1)}
+        peak = max(rowcnt.values()) if rowcnt else 0
+        if peak < max(8, (x1 - x0) // 12):   # 뱃지로 보기엔 색면이 너무 작음
+            return None
+        ya, yb = _longest_run(rowcnt, lambda c: c >= peak * 0.5)
+        if yb < ya:
+            return None
+        colcnt = {x: sum(1 for y in range(ya, yb + 1) if is_red(px[x, y]))
+                  for x in range(x0, x1)}
+        cpeak = max(colcnt.values())
+        xa, xb = _longest_run(colcnt, lambda c: c >= cpeak * 0.5)
+        pad = 4
+        box = (max(xa - pad, 0), max(ya - pad, 0),
+               min(xb + pad, w), min(yb + pad, h))
+        badge = im.crop(box)
+        bw, bh = badge.size
+        big = badge.resize((bw * 5, bh * 5), Image.LANCZOS)  # 확대로 작은 글자 보강
+        bpx = big.load()
+        for y in range(big.size[1]):                          # 흰 글씨 → 검정, 색면 → 흰
+            for x in range(big.size[0]):
+                r, g, b = bpx[x, y]
+                bpx[x, y] = (0, 0, 0) if (r > 160 and g > 160 and b > 160) else (255, 255, 255)
+        for psm in (8, 13, 7):   # 단어/단일줄 모드 우선
+            t = pytesseract.image_to_string(big, config=f"--psm {psm} -l kor")
+            t = t.replace(" ", "").replace("\n", "")
+            if "중식" in t:
+                return "중식"
+            if "석식" in t:
+                return "석식"
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def pick_menu_board(media):
     """메뉴판 카드 선택. OCR(중식 글자) + 테마색(초록=중식/분홍=석식)으로 점수화."""
     best, best_score = None, -10**9
@@ -152,8 +225,14 @@ def pick_menu_board(media):
         elif pink_pct >= 1 and pink_pct > green_pct:
             score -= 200
             theme = "석식(분홍)"
+        # 뱃지 글자 직접 판독(최우선): 중식 확정 가산 / 석식 확정 제외
+        badge = read_badge(img) if img is not None else None
+        if badge == "중식":
+            score += 200
+        elif badge == "석식":
+            score -= 1000
         print(f"  [p{idx}] score={score} (한글{hangul}, 중식={has_js}, neg={neg}, "
-              f"색={theme} g{green_pct:.0f}/p{pink_pct:.0f}) {url.rsplit('/dn/',1)[-1][:24]}")
+              f"뱃지={badge}, 색={theme} g{green_pct:.0f}/p{pink_pct:.0f}) {url.rsplit('/dn/',1)[-1][:24]}")
         if score > best_score:
             best, best_score = (m, raw), score
     return (best[0], best[1], best_score) if best else (None, None, best_score)
