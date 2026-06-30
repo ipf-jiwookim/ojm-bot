@@ -100,16 +100,38 @@ def upload_image(raw, title, comment):
     })
 
 
+def theme_color(img):
+    """메뉴판 테마색 비율(%) 추정. 밥플러스 중식판=초록 테두리/뱃지, 석식판=분홍.
+    '중식'/'석식' 글자가 색 뱃지 안 흰 글씨라 OCR로 안 잡히므로 색으로 보강한다."""
+    im = img.convert("RGB")
+    w, h = im.size
+    px = im.load()
+    green = pink = total = 0
+    for y in range(0, h, 4):
+        for x in range(0, w, 4):
+            r, g, b = px[x, y]
+            total += 1
+            if g > 90 and g > r + 25 and g > b + 25:        # 초록
+                green += 1
+            if r > 150 and b > 90 and r > g + 30 and b > g - 10:  # 분홍/마젠타
+                pink += 1
+    if not total:
+        return 0.0, 0.0
+    return green * 100 / total, pink * 100 / total
+
+
 def pick_menu_board(media):
-    """OCR 점수로 메뉴판 카드 선택 (중식 가산, 석식/미운영 감점)."""
+    """메뉴판 카드 선택. OCR(중식 글자) + 테마색(초록=중식/분홍=석식)으로 점수화."""
     best, best_score = None, -10**9
     for idx, m in enumerate(media, 1):
         url = (m.get("medium_url") or m.get("url") or "").replace("http://", "https://")
         if not url:
             continue
+        img = None
         try:
             raw = http_get(url, KAKAO_HEADERS, binary=True)
-            text = pytesseract.image_to_string(Image.open(io.BytesIO(raw)), lang="kor")
+            img = Image.open(io.BytesIO(raw))
+            text = pytesseract.image_to_string(img, lang="kor")
         except Exception:  # noqa: BLE001
             text, raw = "", None
         flat = text.replace(" ", "")
@@ -121,7 +143,17 @@ def pick_menu_board(media):
             score += 60
         if neg:
             score -= 200
-        print(f"  [p{idx}] score={score} (한글{hangul}, 중식={has_js}, neg={neg}) {url.rsplit('/dn/',1)[-1][:24]}")
+        # 테마색 보강: OCR이 뱃지 글자를 못 읽어도 초록/분홍으로 중식/석식 구분
+        green_pct, pink_pct = theme_color(img) if img is not None else (0.0, 0.0)
+        theme = None
+        if green_pct >= 1 and green_pct > pink_pct:
+            score += 80
+            theme = "중식(초록)"
+        elif pink_pct >= 1 and pink_pct > green_pct:
+            score -= 200
+            theme = "석식(분홍)"
+        print(f"  [p{idx}] score={score} (한글{hangul}, 중식={has_js}, neg={neg}, "
+              f"색={theme} g{green_pct:.0f}/p{pink_pct:.0f}) {url.rsplit('/dn/',1)[-1][:24]}")
         if score > best_score:
             best, best_score = (m, raw), score
     return (best[0], best[1], best_score) if best else (None, None, best_score)
