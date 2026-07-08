@@ -6,10 +6,13 @@
 이미지는 슬랙이 URL을 직접 가져오는 image block 방식이 불안정하므로,
 바이트를 다운로드해 files_upload 방식으로 채널에 직접 업로드한다.
 
-- 오늘 중식 게시물이 없으면 아무것도 보내지 않고 정상 종료.
+- 게시물은 '제목의 날짜(M/D)'로만 찾고, 중식/석식 구분은 이미지 판독에 맡긴다.
+  (관리자가 게시 직후 아침에 제목의 '중식' 표기·요일 괄호를 다듬는 일이 있어
+   제목의 '중식' 유무로 거르면 그 틈에 실행된 봇이 놓친다. 날짜는 대체로 처음부터 박혀 있다.)
+- 오늘 날짜 게시물이 없으면 안내 메시지를 보내고 종료.
 - 메뉴판(글자 카드)은 음식 사진과 달리 OCR로 한글이 많이 잡힌다.
-  같은 게시물에 '석식 미운영' 등 다른 안내 카드가 섞일 수 있으므로
-  '중식'에 가산점, '석식/미운영/휴무' 안내에는 감점을 준다.
+  중식/석식이 별도 게시물로 올라올 수 있으므로 날짜가 맞는 게시물의 이미지를 모두 모아
+  '중식' 뱃지/초록 테마엔 가산점, '석식/미운영/휴무'엔 감점을 줘 중식 메뉴판을 고른다.
 
 환경변수:
   SLACK_BOT_TOKEN    (필수) xoxb- 봇 토큰 (files:write, chat:write)
@@ -19,6 +22,7 @@
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -269,36 +273,45 @@ def main():
         return
     md = f"{today.month}/{today.day}"
     label = f"{md}({'월화수목금토일'[today.weekday()]})"
-    print(f"[*] 오늘(KST): {today:%Y-%m-%d} | 매칭: '{md}' + '중식'")
+    print(f"[*] 오늘(KST): {today:%Y-%m-%d} | 날짜 매칭: '{md}' (중식/석식은 이미지로 구분)")
 
-    # 제목은 항상 'M/D(요일) ...' 형식 → 여는 괄호까지 붙여 부분문자열 오매칭 방지
-    #   (예: 6/2 가 6/26 게시물에 잘못 매칭되는 문제)
-    date_key = f"{md}("
+    # 제목의 날짜(M/D)만으로 매칭한다. 관리자가 게시 직후 아침에 제목의 '중식' 표기나
+    # 요일 괄호를 다듬는 일이 있어(예: '7/8 중식메뉴' → '7/8(수) 중식메뉴') 그 틈에
+    # 실행된 봇이 '중식'/괄호 요구 때문에 게시물을 통째로 놓친다. 날짜는 대체로 처음부터
+    # 박혀 있으므로 날짜만 잡고, 중식/석식 구분은 이미지 판독(뱃지/색/OCR)에 맡긴다.
+    #   - '/' 앞뒤 공백·전각(／)·앞자리 0 허용:  '7 / 8', '07/08', '7/8'
+    #   - 숫자 경계로 오매칭 방지:  '6/2'가 '6/26'에, '7/8'이 '7/80'에 붙지 않게
+    date_re = re.compile(rf"(?<!\d)0*{today.month}\s*[/／]\s*0*{today.day}(?!\d)")
     items = json.loads(http_get(API, KAKAO_HEADERS)).get("items", [])
-    hit = next((it for it in items
-                if date_key in (it.get("title") or "") and "중식" in (it.get("title") or "")), None)
-    if not hit:
-        print("[*] 오늘 중식 게시물 없음 → 안내 메시지 전송")
+    hits = [it for it in items if date_re.search(it.get("title") or "")]
+    if not hits:
+        print("[*] 오늘 날짜 게시물 없음 → 안내 메시지 전송")
         post_text(f"🍱 오늘({label}) 중식 메뉴가 아직 등록되지 않았어요. "
                   f"<https://pf.kakao.com/{KAKAO_CH}/posts|채널에서 직접 확인하기>")
         return
-    media = hit.get("media") or []
+
+    # 같은 날 중식·석식이 별도 게시물로 올라올 수 있으므로, 날짜가 맞는 모든 게시물의
+    # 이미지를 한데 모아 점수화한다. pick_menu_board가 석식(분홍/뱃지/안내문)엔 큰 감점을
+    # 주므로 중식 메뉴판이 자연스럽게 최고점으로 선택된다.
+    permalink = next((it.get("permalink") for it in hits if it.get("permalink")), "")
+    media = [m for it in hits for m in (it.get("media") or [])]
+    titles = ", ".join(f"'{(it.get('title') or '').strip()}'" for it in hits)
     if not media:
         print("[*] 이미지 없음 → 안내 메시지 전송")
-        post_text(f"🍱 오늘({label}) 중식 게시물은 올라왔지만 이미지가 없어요. "
-                  f"<{hit.get('permalink', '')}|게시물 보기>")
+        post_text(f"🍱 오늘({label}) 게시물은 올라왔지만 이미지가 없어요. "
+                  f"<{permalink}|게시물 보기>")
         return
 
-    print(f"[*] 게시물 '{hit.get('title','').strip()}' 이미지 {len(media)}장 분석:")
+    print(f"[*] 날짜 매칭 게시물 {len(hits)}개({titles}) · 이미지 {len(media)}장 분석:")
     board, raw, score = pick_menu_board(media)
     sel = (board.get("medium_url") or board.get("url") or "").replace("http://", "https://") if board else None
     print(f"[*] 선택된 메뉴판: score={score} {sel}")
 
-    # 신뢰도 미달(메뉴판을 못 찾음) → 음식 사진 오선택 대신 안내 메시지
+    # 신뢰도 미달(중식 메뉴판을 못 찾음: 석식만 있거나 음식 사진뿐) → 안내 메시지
     if raw is None or score < MIN_BOARD_SCORE:
-        print(f"[*] 메뉴판 신뢰도 부족(score={score} < {MIN_BOARD_SCORE}) → 안내 메시지 전송")
-        post_text(f"🍱 오늘({label}) 중식 게시물은 있으나 메뉴판 이미지를 찾지 못했어요. "
-                  f"<{hit.get('permalink', '')}|게시물에서 직접 확인하기>")
+        print(f"[*] 중식 메뉴판 신뢰도 부족(score={score} < {MIN_BOARD_SCORE}) → 안내 메시지 전송")
+        post_text(f"🍱 오늘({label}) 게시물은 있으나 중식 메뉴판 이미지를 찾지 못했어요. "
+                  f"<{permalink}|게시물에서 직접 확인하기>")
         return
 
     # 선별은 medium OCR, 전송은 고화질(xlarge)로 — 글씨가 또렷하게
