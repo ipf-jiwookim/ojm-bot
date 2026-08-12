@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies (tesseract + 한글 데이터)
         run: |
           sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-kor
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-kor fonts-nanum
           pip install -r requirements.txt
 
       - name: 오늘 날짜(KST) 계산
