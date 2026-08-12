@@ -104,6 +104,64 @@ def post_text(text):
     slack_api("chat.postMessage", {"channel": SLACK_CH, "text": text})
 
 
+SHEET_W, SHEET_GAP, SHEET_PAD = 1480, 22, 22
+
+
+def make_sheet(cards):
+    """카드 여러 장을 한 장으로 합친다. 슬랙에 이미지를 여러 개 붙이면 공통 비율로
+    가운데만 남기고 잘라내기 때문에(띠·가장자리가 날아감) 아예 한 장으로 만든다.
+
+    세로로 긴 카드는 두 장씩 나란히, 가로로 넓은 카드는 한 줄을 통째로 쓴다.
+    밥짓는부엌처럼 가로형 2단 메뉴판은 절반 폭에 넣으면 글씨가 읽을 수 없게 작아진다."""
+    imgs = [Image.open(io.BytesIO(raw)).convert("RGB") for raw in cards]
+    rows, pend = [], []
+    for im in imgs:
+        if im.width / im.height >= 0.95:        # 가로형 → 한 줄 독차지
+            if pend:
+                rows.append(pend)
+                pend = []
+            rows.append([im])
+        else:
+            pend.append(im)
+            if len(pend) == 2:
+                rows.append(pend)
+                pend = []
+    if pend:
+        rows.append(pend)
+
+    strips = []
+    for row in rows:
+        if len(row) == 1:
+            im = row[0]
+            # 세로형이 혼자 한 줄을 다 쓰면 이미지가 쓸데없이 길어진다(짝이 없는 날).
+            w = SHEET_W if im.width / im.height >= 0.95 else round(SHEET_W * 0.62)
+            im = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+            strip = Image.new("RGB", (SHEET_W, im.height), "white")
+            strip.paste(im, ((SHEET_W - w) // 2, 0))
+            strips.append(strip)
+            continue
+        h = max(i.height for i in row)                       # 높이 맞춘 뒤
+        row = [i.resize((round(i.width * h / i.height), h), Image.LANCZOS) for i in row]
+        s = (SHEET_W - SHEET_GAP) / sum(i.width for i in row)  # 줄 폭에 맞춰 축소
+        row = [i.resize((round(i.width * s), round(i.height * s)), Image.LANCZOS) for i in row]
+        strip = Image.new("RGB", (SHEET_W, max(i.height for i in row)), "white")
+        x = 0
+        for i in row:
+            strip.paste(i, (x, 0))
+            x += i.width + SHEET_GAP
+        strips.append(strip)
+
+    h = SHEET_PAD * 2 + sum(s.height for s in strips) + SHEET_GAP * (len(strips) - 1)
+    sheet = Image.new("RGB", (SHEET_W + SHEET_PAD * 2, h), "white")
+    y = SHEET_PAD
+    for s in strips:
+        sheet.paste(s, (SHEET_PAD, y))
+        y += s.height + SHEET_GAP
+    buf = io.BytesIO()
+    sheet.save(buf, "PNG")
+    return buf.getvalue()
+
+
 def upload_images(cards, comment):
     """[(raw, filename, title), ...] 를 한 메시지에 묶어 업로드한다.
     files.completeUploadExternal 이 배열을 받으므로 이미지 N장이 메시지 1개로 붙는다."""
@@ -544,27 +602,28 @@ def main():
 
     # 한 곳이 죽어도 나머지는 보낸다. 실패는 코멘트에 안내 한 줄로만 남긴다.
     cards, notes = [], []
-    for name, filename, color, fetch in SOURCES:
+    for name, _filename, color, fetch in SOURCES:
         try:
             raw, note = fetch(today.date(), label)
         except Exception as e:  # noqa: BLE001
             print(f"[!] {name} 수집 실패: {e}")
             raw, note = None, f"⚠️ {name} — 메뉴를 가져오지 못했어요 ({e})"
         if raw:
-            cards.append((make_card(raw, f"{name} · {label}", color), filename, f"{name} {label}"))
+            cards.append(make_card(raw, f"{name} · {label}", color))
         else:
             notes.append(note)
 
+    comment = "\n".join([f"🍽️ 오늘의 점심 — {label}"] + notes)
     if not cards:
         print("[*] 보낼 이미지 없음 → 안내 메시지만 전송")
-        post_text("\n".join([f"🍽️ 오늘의 점심 — {label}"] + notes))
+        post_text(comment)
         mark_sent(today)
         return
 
-    comment = "\n".join([f"🍽️ 오늘의 점심 — {label}"] + notes)
-    upload_images(cards, comment)
+    sheet = make_sheet(cards)
+    upload_images([(sheet, "lunch.png", f"오늘의 점심 {label}")], comment)
     mark_sent(today)
-    print(f"[*] 전송 완료 (이미지 {len(cards)}장, 안내 {len(notes)}줄)")
+    print(f"[*] 전송 완료 (식당 {len(cards)}곳 합친 이미지 1장, 안내 {len(notes)}줄)")
 
 
 if __name__ == "__main__":
