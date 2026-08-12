@@ -1,4 +1,4 @@
-name: 밥플러스 점심 메뉴 슬랙 알림
+name: 오늘 점심 모묵지 알림
 
 on:
   # 예약 실행은 외부 스케줄러(val.town)가 평일 11:00 KST에 workflow_dispatch로 트리거.

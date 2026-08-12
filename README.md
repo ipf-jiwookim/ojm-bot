@@ -67,7 +67,7 @@ python3 test_lunch_bot.py        # 격자 검출·요일 열 선택 자체 점�
 - 자동: 외부 스케줄러(val.town)가 평일 **10:30 KST**에 `workflow_dispatch`로 트리거
   (관리자가 매일 오전 11시경 게시물을 수정하는 것과 겹쳐 메뉴판이 잠시 빠졌다 나타나는 시간대를 피하기 위함)
   - 같은 날 여러 번 실행돼도 GitHub Actions 캐시 마커로 중복 전송을 방지한다
-- 수동: Actions 탭 → "밥플러스 점심 메뉴 슬랙 알림" → Run workflow
+- 수동: Actions 탭 → "오늘 점심 모묵지 알림" → Run workflow
 
 ## 설정 (Secrets)
 | 이름 | 설명 |
