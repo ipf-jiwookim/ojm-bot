@@ -75,7 +75,7 @@ python3 test_lunch_bot.py        # 격자 검출·요일 열 선택 자체 점�
 | `SLACK_BOT_TOKEN` | 슬랙 봇 토큰 `xoxb-...` (스코프: `files:write`, `chat:write`) |
 | `SLACK_CHANNEL_ID` | 전송할 채널 ID (예: `C0BDDENKY3B` = 오늘-점심-모묵지) |
 
-봇은 대상 채널에 멤버여야 한다 (`/invite @밥플러스 점심봇`).
+봇은 대상 채널에 멤버여야 한다 (`/invite @오늘 점심 모묵지 봇`).
 밥플러스 카카오 채널을 바꾸려면 `CHANNEL_ID` 환경변수(기본 `_HGxjan`)를 워크플로우에 추가한다.
 
 카드에 한글을 쓰려면 러너에 한글 폰트가 있어야 한다 (워크플로우에서 `fonts-nanum` 설치).
