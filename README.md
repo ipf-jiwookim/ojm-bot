@@ -69,6 +69,28 @@ python3 test_lunch_bot.py        # 격자 검출·요일 열 선택 자체 점�
   - 같은 날 여러 번 실행돼도 GitHub Actions 캐시 마커로 중복 전송을 방지한다
 - 수동: Actions 탭 → "오늘 점심 모묵지 알림" → Run workflow
 
+### 한 식당만 다시 보내기 (`ONLY`)
+세 곳 중 한 곳만 실패한 날, 그 한 곳만 따로 보낼 때 쓴다.
+그냥 재실행하면 이미 나간 나머지 두 곳까지 중복 전송된다.
+
+1. 오늘 전송 마커 캐시를 지운다 (안 지우면 조용히 스킵된다)
+   ```bash
+   gh cache delete lunch-sent-$(TZ=Asia/Seoul date +%F)
+   ```
+2. Actions 탭 → Run workflow → **"이 식당만 전송"** 에서 식당을 고른다 (비우면 전체)
+
+CLI로는 이렇게:
+```bash
+gh workflow run lunch.yml -f only=밥짓는부엌
+```
+
+로컬 확인은 `ONLY` 환경변수로:
+```bash
+DRY_RUN=1 ONLY=밥짓는부엌 python3 lunch_bot.py
+```
+
+식당명은 `SOURCES` 표시 이름과 정확히 같아야 한다 (`밥플러스`·`사랑해밥상`·`밥짓는부엌`).
+
 ## 설정 (Secrets)
 | 이름 | 설명 |
 |------|------|
