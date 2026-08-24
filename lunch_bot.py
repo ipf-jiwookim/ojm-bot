@@ -502,6 +502,15 @@ def fetch_babjit(today, label):
                                  -(v.get("feedId") or 0)))
     feed = same_day[0] if same_day else None
     if not feed:
+        # 2026-08-24: 09:58 게시글이 10:32 실행에서 안 보였다(map.naver.com 에는 보였음).
+        # '진짜 미게시'와 'SSR 응답이 스테일/깨짐'을 로그로 구분해 둔다. 다음에 또 나면
+        # 최신 createdString 이 어제 날짜로 찍혀 있을 것이고, 그때 다른 엔드포인트를 붙인다.
+        seen = sorted((v.get("createdString") or "") for k, v in state.items()
+                      if k.startswith("Feed:"))
+        print(f"[!] 밥짓는부엌 오늘({stamp}) 글 없음 — Feed {len(seen)}건, "
+              f"최신 {seen[-1] if seen else '없음'}")
+        if not seen:
+            return None, f"🍚 밥짓는부엌 — 네이버 소식을 읽지 못했어요. {link}"
         return None, f"🍚 밥짓는부엌 — 오늘({label}) 메뉴가 아직 안 올라왔어요. {link}"
     print(f"[*] 밥짓는부엌 '{(feed.get('title') or '').strip()}' ({stamp}, 같은 날 {len(same_day)}건)")
     return http_get(feed["thumbnail"]["url"] + "?type=w1500", NAVER_HEADERS, binary=True), None
