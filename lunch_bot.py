@@ -611,7 +611,12 @@ def main():
 
     # 한 곳이 죽어도 나머지는 보낸다. 실패는 코멘트에 안내 한 줄로만 남긴다.
     cards, notes = [], []
+    # ONLY 가 있으면 그 식당만 보낸다. 한 곳만 실패한 날 그 한 곳을 따로 복구 전송하는 용도
+    # (전체 재실행은 나머지 두 곳을 중복 전송한다).
+    only = os.environ.get("ONLY", "").strip()
     for name, _filename, color, fetch in SOURCES:
+        if only and name != only:
+            continue
         try:
             raw, note = fetch(today.date(), label)
         except Exception as e:  # noqa: BLE001

@@ -9,6 +9,11 @@ on:
         description: "슬랙 전송 없이 동작만 테스트"
         type: boolean
         default: false
+      only:
+        description: "이 식당만 전송 (비우면 전체)"
+        type: choice
+        default: ""
+        options: ["", "밥플러스", "사랑해밥상", "밥짓는부엌"]
 
 concurrency:
   group: lunch-bot
@@ -48,4 +53,5 @@ jobs:
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SENT_MARKER: .sent_marker
           DRY_RUN: ${{ inputs.dry_run }}
+          ONLY: ${{ inputs.only }}
         run: python lunch_bot.py
