@@ -384,8 +384,11 @@ def table_grid(im):
     g = im.convert("L")
     w, h = g.size
     px = g.load()
+    # 왼쪽 바깥 테두리는 세지 않는다(라벨열 왼쪽 경계는 crop 때 x=0을 쓰므로 불필요).
+    # 고정 3px였는데 2026-08-31자 표(1135px 폭)는 테두리가 정확히 x=3이라 살아남아
+    # 세로선이 7개가 됐고 표 판정에 실패했다. 폭 대비 2%면 라벨열선(최소 9%)과 안 겹친다.
     v = [x for x in _grid_lines(range(w), list(range(int(h * .15), int(h * .55), 2)),
-                                lambda x, y: px[x, y], .85) if x >= 3]
+                                lambda x, y: px[x, y], .85) if x >= w * .02]
     if len(v) != 6:
         return None, None
     hl = [y for y in _grid_lines(range(h), list(range(3, v[5] - 3, 4)),
