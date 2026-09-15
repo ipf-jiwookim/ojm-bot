@@ -1,7 +1,7 @@
 name: 오늘 점심 모묵지 알림
 
 on:
-  # 예약 실행은 외부 스케줄러(val.town)가 평일 11:00 KST에 workflow_dispatch로 트리거.
+  # 예약 실행은 외부 스케줄러(val.town)가 평일 10:30 KST에 workflow_dispatch로 트리거.
   # (GitHub schedule cron은 누락이 잦아 제거함)
   workflow_dispatch:
     inputs:
