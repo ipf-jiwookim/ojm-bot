@@ -9,7 +9,7 @@
 로컬 실행은 반드시 `DRY_RUN=1` — 전송도 안 하고 전송 마커도 안 건드린다.
 
 ```bash
-DRY_RUN=1 python3 lunch_bot.py   # ./dryrun/lunch.png 로 합친 이미지만 생성
+DRY_RUN=1 python3 lunch_bot.py   # ./dryrun/{babplus,sarang,babjit}.png 크롭만 생성, 전송 없음
 python3 test_lunch_bot.py        # 격자 검출·요일 열 선택 자체 점검 (네트워크 불필요)
 ```
 
