@@ -19,8 +19,9 @@ IMG_H = YS[-1] + 12
 MARK_Y = YS[1] + 20          # 열 식별 표식을 그릴 높이 (점심칸 안)
 
 
-def fake_table(dinner_split):
-    """5열 주간 식단표 흉내. dinner_split=True면 석식행도 요일별로 나뉜다."""
+def fake_table(dinner_split, band=False):
+    """5열 주간 식단표 흉내. dinner_split=True면 석식행도 요일별로 나뉜다.
+    band=True면 샐러드바 마지막 줄을 남색 행처럼 통째로 칠한다(2026-09-28자 표)."""
     w = LABEL_W + COL_W * 5
     im = Image.new("RGB", (w + 4, IMG_H), "white")
     d = ImageDraw.Draw(im)
@@ -31,6 +32,8 @@ def fake_table(dinner_split):
         d.line([(x, YS[0]), (x, v_bottom)], fill="black", width=2)
     for y in YS:
         d.line([(0, y), (w, y)], fill="black", width=2)
+    if band:
+        d.rectangle([0, YS[5], w, YS[6]], fill=(0, 32, 96))
     for i in range(5):                                    # i번 열엔 (i+1)*10px 빨간 표식
         d.rectangle([xs[i] + 20, MARK_Y, xs[i] + 20 + (i + 1) * 10 - 1, MARK_Y + 20], fill="red")
     return im
@@ -56,10 +59,17 @@ def main():
     v2, hl2 = L.table_grid(split)
     assert L.crop_weekday(split, v2, hl2, 0).height == YS[7] - YS[0], "석식행이 빠짐"
 
+    # 칠해진 띠가 선 하나로 뭉치면 선 순번이 밀려 석식 배너가 딸려 나오거나 표 판정이 깨진다
+    band = fake_table(dinner_split=False, band=True)
+    v3, hl3 = L.table_grid(band)
+    assert v3 is not None, "남색 띠가 있는 표 격자 검출 실패"
+    h3 = L.crop_weekday(band, v3, hl3, 1).height          # 띠 경계는 선 굵기만큼 ±1px
+    assert abs(h3 - (YS[6] - YS[0])) <= 2, f"띠 아래 경계를 못 찾음 (높이 {h3})"
+
     # 표가 아닌 이미지는 걸러져야 한다 (공지/일일메뉴 이미지가 여기로 새면 안 됨)
     assert L.table_grid(Image.new("RGB", (600, 400), "white"))[0] is None, "표 아닌 이미지가 통과"
 
-    print("OK — 격자 6열 검출 / 요일별 열 선택 / 석식 포함·제외 / 비표 배제")
+    print("OK — 격자 6열 검출 / 요일별 열 선택 / 석식 포함·제외 / 칠해진 띠 / 비표 배제")
 
 
 if __name__ == "__main__":

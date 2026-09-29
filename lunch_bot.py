@@ -107,28 +107,14 @@ def post_text(text):
 SHEET_W, SHEET_GAP, SHEET_PAD = 1480, 22, 22
 
 
-def make_sheet(cards):
+def make_sheet(rows):
     """카드 여러 장을 한 장으로 합친다. 슬랙에 이미지를 여러 개 붙이면 공통 비율로
     가운데만 남기고 잘라내기 때문에(띠·가장자리가 날아감) 아예 한 장으로 만든다.
 
-    세로로 긴 카드는 두 장씩 나란히, 가로로 넓은 카드는 한 줄을 통째로 쓴다.
-    밥짓는부엌처럼 가로형 2단 메뉴판은 절반 폭에 넣으면 글씨가 읽을 수 없게 작아진다."""
-    imgs = [Image.open(io.BytesIO(raw)).convert("RGB") for raw in cards]
-    rows, pend = [], []
-    for im in imgs:
-        if im.width / im.height >= 0.95:        # 가로형 → 한 줄 독차지
-            if pend:
-                rows.append(pend)
-                pend = []
-            rows.append([im])
-        else:
-            pend.append(im)
-            if len(pend) == 2:
-                rows.append(pend)
-                pend = []
-    if pend:
-        rows.append(pend)
-
+    rows = [[카드 bytes, ...], ...] — 한 줄에 무엇을 놓을지는 SHEET_ROWS 가 정한다.
+    카드 비율로 배치를 정하던 때는 사랑해밥상 크롭이 실패해 표 통짜(가로형)가 들어온 날
+    세 장이 세로로 쭉 늘어섰다(2026-09-29). 배치는 식당 기준으로 고정한다."""
+    rows = [[Image.open(io.BytesIO(raw)).convert("RGB") for raw in row] for row in rows]
     strips = []
     for row in rows:
         if len(row) == 1:
@@ -371,7 +357,11 @@ def _grid_lines(rng, scan, get, ratio, thr=190, gap=3):
                 out[-1].append(i)
             else:
                 out.append([i])
-    return [(g[0] + g[-1]) // 2 for g in out]
+    # 두께가 8px를 넘으면 선이 아니라 칠해진 띠(샐러드바 남색 행)다. 중심 하나로 줄이면
+    # 띠 아래 경계가 사라진다 — 2026-09-28자 표는 목·금 칸이 비어 남색 행 전체(446~469px)가
+    # 한 덩어리로 잡혔고, 가로선이 5개로 줄어 표 판정에 실패했다. 위·아래 경계를 둘 다 낸다.
+    return [y for g in out
+            for y in ((g[0], g[-1]) if g[-1] - g[0] > 8 else ((g[0] + g[-1]) // 2,))]
 
 
 def table_grid(im):
@@ -399,14 +389,21 @@ def table_grid(im):
 def crop_weekday(im, v, hl, idx):
     """왼쪽 라벨열 + idx번 요일열을 이어붙인다(날짜행 ~ 샐러드바 끝).
     석식행이 요일별로 나뉘어 있으면(실제 운영) 포함하고,
-    '석식은 운영하지 않습니다' 같은 통짜 안내 배너면 잘라낸다."""
-    top, bot = hl[0], (hl[6] if len(hl) > 6 else hl[-1])
-    if len(hl) > 7:
+    '석식은 운영하지 않습니다' 같은 통짜 안내 배너면 잘라낸다.
+
+    샐러드바 끝은 선 순번이 아니라 간격으로 찾는다. 샐러드바 줄 수(2~4)와 잡히는 선 개수가
+    주마다 달라서, hl[6]을 끝으로 보던 때는 08-31·09-07자 표에서 석식 배너가 딸려 나왔다.
+    샐러드바 줄(~30px)은 점심행(~250px)의 1/3보다 한참 작고, 석식행(~180px)은 그보다 크다."""
+    top, k = hl[0], 2
+    while k + 1 < len(hl) and hl[k + 1] - hl[k] < (hl[2] - hl[1]) / 3:
+        k += 1
+    bot = hl[k]
+    if k + 1 < len(hl):          # 석식행 아래 선이 잡혔을 때만 (로고가 가리면 못 잡는다)
         px = im.convert("L").load()
-        ys = list(range(hl[6] + 4, hl[7] - 4, 2))
+        ys = list(range(hl[k] + 4, hl[k + 1] - 4, 2))
         if ys and max(sum(1 for y in ys if px[x, y] < 190) / len(ys)
                       for x in range(v[2] - 6, v[2] + 7)) > 0.9:
-            bot = hl[7]
+            bot = hl[k + 1]
     lab = im.crop((0, top, v[0], bot))
     day = im.crop((v[idx], top, v[idx + 1], bot))
     out = Image.new("RGB", (lab.width + day.width, day.height), "white")
@@ -589,6 +586,9 @@ SOURCES = (
     ("사랑해밥상", "sarang.png", COLOR_SARANG, fetch_sarang),
     ("밥짓는부엌", "babjit.png", COLOR_BABJIT, fetch_babjit),
 )
+# 합친 이미지의 줄 배치. 세로형 둘은 나란히, 밥짓는부엌(가로형 2단 메뉴판)은 한 줄 통째로
+# — 절반 폭에 넣으면 글씨가 읽을 수 없게 작아진다(내용 배율 0.23배 → 한 줄을 다 주면 0.68배).
+SHEET_ROWS = (("밥플러스", "사랑해밥상"), ("밥짓는부엌",))
 
 
 def main():
@@ -613,7 +613,7 @@ def main():
     print(f"[*] 오늘(KST): {today:%Y-%m-%d} ({label})")
 
     # 한 곳이 죽어도 나머지는 보낸다. 실패는 코멘트에 안내 한 줄로만 남긴다.
-    cards, notes = [], []
+    cards, notes = {}, []
     # ONLY 가 있으면 그 식당만 보낸다. 한 곳만 실패한 날 그 한 곳을 따로 복구 전송하는 용도
     # (전체 재실행은 나머지 두 곳을 중복 전송한다).
     only = os.environ.get("ONLY", "").strip()
@@ -626,7 +626,7 @@ def main():
             print(f"[!] {name} 수집 실패: {e}")
             raw, note = None, f"⚠️ {name} — 메뉴를 가져오지 못했어요 ({e})"
         if raw:
-            cards.append(make_card(raw, f"{name} · {label}", color))
+            cards[name] = make_card(raw, f"{name} · {label}", color)
         else:
             notes.append(note)
 
@@ -637,7 +637,7 @@ def main():
         mark_sent(today)
         return
 
-    sheet = make_sheet(cards)
+    sheet = make_sheet([r for r in ([cards[n] for n in row if n in cards] for row in SHEET_ROWS) if r])
     upload_images([(sheet, "lunch.png", f"오늘의 점심 {label}")], comment)
     mark_sent(today)
     print(f"[*] 전송 완료 (식당 {len(cards)}곳 합친 이미지 1장, 안내 {len(notes)}줄)")
