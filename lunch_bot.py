@@ -381,8 +381,10 @@ def table_grid(im):
                                 lambda x, y: px[x, y], .85) if x >= w * .02]
     if len(v) != 6:
         return None, None
+    # 표 오른쪽 아래 로고의 흰 박스가 폭의 ~15%를 가린다. .93이던 때는 로고가 남색 행까지
+    # 올라온 09-14·09-21자 표에서 띠 아래 경계(어두운 비율 .84~.85)를 놓쳐 글자 아래가 잘렸다.
     hl = [y for y in _grid_lines(range(h), list(range(3, v[5] - 3, 4)),
-                                 lambda y, x: px[x, y], .93) if 5 < y < h - 5]
+                                 lambda y, x: px[x, y], .8) if 5 < y < h - 5]
     return (v, hl) if len(hl) >= 6 else (None, None)
 
 
